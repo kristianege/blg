@@ -1,0 +1,141 @@
+Option Explicit
+
+Const ValidChars As String = "QHksfajuX"
+
+Private Sub Worksheet_Change(ByVal Target As Range)
+    ResetTimer
+    
+    Dim TogtRange As Range
+    Dim DataRange As Range
+    Dim InputWeekRange As Range
+    Dim Cell As Range
+    Dim TogtColor As Long
+    
+    Dim InputStr As String
+    Dim OutputStr As String
+    Dim i As Integer
+    Dim Char As String
+    Dim MatchIndex As Integer
+    Dim InvalidFound As Boolean
+    
+    Set InputWeekRange = Me.Range("D10")
+    Set TogtRange = Me.Range("A12:A500")
+    Set DataRange = Me.Range("E12:BD500")
+    
+    If Not Intersect(Target, InputWeekRange) Is Nothing Then Exit Sub
+    If Intersect(Target, Union(TogtRange, DataRange)) Is Nothing Then Exit Sub
+    
+    ' --- 1. TOGT FARVER ---
+    If Not Intersect(Target, TogtRange) Is Nothing Then
+        For Each Cell In Intersect(Target, TogtRange)
+            If IsNumeric(Cell.Value) And Cell.Value <> "" Then
+                Select Case Cell.Value
+                    Case 1: TogtColor = RGB(255, 179, 186)
+                    Case 2: TogtColor = RGB(255, 223, 186)
+                    Case 3: TogtColor = RGB(255, 255, 186)
+                    Case 4: TogtColor = RGB(186, 255, 201)
+                    Case 5: TogtColor = RGB(186, 225, 255)
+                    Case 6: TogtColor = RGB(221, 160, 221)
+                    Case 7: TogtColor = RGB(176, 196, 222)
+                    Case 8: TogtColor = RGB(240, 230, 140)
+                    Case 9: TogtColor = RGB(255, 160, 122)
+                    Case 10: TogtColor = RGB(144, 238, 144)
+                    Case 11: TogtColor = RGB(255, 105, 180)
+                    Case 12: TogtColor = RGB(210, 105, 30)
+                    Case 13: TogtColor = RGB(0, 206, 209)
+                    Case 14: TogtColor = RGB(123, 104, 238)
+                    Case 15: TogtColor = RGB(255, 215, 0)
+                    Case Else: TogtColor = xlNone
+                End Select
+                Cell.Interior.Color = TogtColor
+            Else
+                Cell.Interior.ColorIndex = xlNone
+            End If
+        Next Cell
+    End If
+    
+    ' --- 2. DATA VALIDERING ---
+    If Not Intersect(Target, DataRange) Is Nothing Then
+        Application.EnableEvents = False
+        On Error GoTo Cleanup
+        
+        For Each Cell In Intersect(Target, DataRange)
+            If Cell.Value <> "" And Not Cell.HasFormula Then
+                InputStr = Cell.Value
+                OutputStr = ""
+                InvalidFound = False
+                
+                For i = 1 To Len(InputStr)
+                    Char = Mid(InputStr, i, 1)
+                    MatchIndex = InStr(1, ValidChars, Char, vbTextCompare)
+                    If MatchIndex > 0 Then
+                        OutputStr = OutputStr & Mid(ValidChars, MatchIndex, 1)
+                    Else
+                        InvalidFound = True
+                    End If
+                Next i
+                
+                If InputStr <> OutputStr Then
+                    Cell.Value = OutputStr
+                    If InvalidFound Then MsgBox "Ugyldigt tegn! Kun: " & ValidChars, vbExclamation
+                End If
+                
+                If InStr(1, Cell.Value, "X", vbTextCompare) > 0 Then
+                    Cell.Interior.Color = RGB(128, 0, 128)
+                    Cell.Font.Color = vbWhite
+                    Cell.Font.Bold = True
+                    Cell.Interior.Pattern = xlNone ' Fjern striber
+                Else
+                    Cell.Font.Color = vbBlack
+                    Cell.Font.Bold = False
+                    
+                    ' Tjek om cellen er "Prøvesvar" (Stribet) - Hvis ja, behold den
+                    If Cell.Interior.Pattern = xlPatternLightUp Then
+                        ' Gør intet, behold striber
+                    Else
+                        ' Hvis ikke stribet og ikke grøn, sæt til Gul
+                        If Cell.Interior.Color <> RGB(144, 238, 144) Then
+                            Cell.Interior.Color = RGB(255, 255, 224)
+                            Cell.Interior.Pattern = xlNone
+                        End If
+                    End If
+                End If
+            Else
+                If Not Cell.HasFormula Then
+                    Cell.Interior.ColorIndex = xlNone
+                    Cell.Interior.Pattern = xlNone ' Fjern striber
+                    Cell.Font.Color = vbBlack
+                    Cell.Font.Bold = False
+                End If
+            End If
+        Next Cell
+        Application.EnableEvents = True
+    End If
+    Exit Sub
+
+Cleanup:
+    Application.EnableEvents = True
+End Sub
+
+Private Sub Worksheet_BeforeDoubleClick(ByVal Target As Range, Cancel As Boolean)
+    ResetTimer
+    Dim DataRange As Range
+    Set DataRange = Me.Range("E12:BD500")
+    If Not Intersect(Target, DataRange) Is Nothing Then
+        If Target.Value <> "" And InStr(1, Target.Value, "X", vbTextCompare) = 0 Then
+            Cancel = True
+            ' Fjern altid striber ved dobbeltklik
+            Target.Interior.Pattern = xlNone 
+            
+            If Target.Interior.Color = RGB(144, 238, 144) Then
+                Target.Interior.Color = RGB(255, 255, 224) ' Gul
+            Else
+                Target.Interior.Color = RGB(144, 238, 144) ' Grøn
+            End If
+        End If
+    End If
+End Sub
+
+Private Sub Worksheet_SelectionChange(ByVal Target As Range)
+    ResetTimer
+End Sub
