@@ -1,0 +1,290 @@
+Option Explicit
+
+' --- VARIABEL TIL TIMER (AUTO-SLUK) ---
+Public RunTime As Date
+
+Sub BygMitArk()
+    Dim ws As Worksheet
+    Dim i As Integer
+    Dim Codes As Variant
+    Dim Descriptions As Variant
+    Dim DataStartRow As Integer
+    Dim HeaderRow As Integer
+    Dim NumCodes As Integer
+    Dim CurrentCol As Integer
+    Dim btn As Shape
+    
+    Application.EnableEvents = False
+    On Error GoTo Cleanup
+    
+    Set ws = ActiveSheet
+    
+    ws.Cells.Clear
+    ws.DrawingObjects.Delete
+    
+    ' 1. DEFINITIONER
+    Codes = Array("Q", "H", "k", "s", "f", "a", "j", "u", "X")
+    Descriptions = Array("Vandføringsmåling", "Vandstand", "Kemi", "Salinitet", _
+                         "Jern", "Alkalinitet", "Jordvand", "Jordvand udvidet", "FERIE")
+    
+    NumCodes = UBound(Codes) + 1
+    HeaderRow = NumCodes + 2
+    DataStartRow = HeaderRow + 1
+    
+    ' 2. VEJLEDNING
+    With ws.Range(ws.Cells(1, 1), ws.Cells(NumCodes, 1))
+        .Merge
+        .Value = "VEJLEDNING:" & vbCrLf & vbCrLf & _
+                 "• Dobbeltklik:" & vbCrLf & "  Udført (Grøn)" & vbCrLf & vbCrLf & _
+                 "• Ctrl + m:" & vbCrLf & "  Prøvesvar (Stribet)" & vbCrLf & vbCrLf & _
+                 "• X = Ferie" & vbCrLf & "  (Tælles ikke)"
+        .VerticalAlignment = xlCenter
+        .HorizontalAlignment = xlLeft
+        .WrapText = True
+        .Interior.Color = RGB(245, 245, 245)
+        .Font.Size = 9
+        .Borders.LineStyle = xlContinuous
+    End With
+
+    ' 3. OPSÆTNING AF KODER
+    For i = 0 To UBound(Codes)
+        ws.Cells(i + 1, 4).Value = Codes(i)
+        With ws.Cells(i + 1, 4)
+            .Font.Bold = True
+            .Interior.Color = RGB(200, 200, 200)
+            .HorizontalAlignment = xlCenter
+            .VerticalAlignment = xlCenter
+            .Borders.LineStyle = xlContinuous
+        End With
+        
+        ws.Cells(i + 1, 3).Value = Descriptions(i)
+        With ws.Cells(i + 1, 3)
+            .Font.Italic = True
+            .VerticalAlignment = xlCenter
+            .HorizontalAlignment = xlRight
+            .Interior.Color = xlNone
+        End With
+        
+        If Codes(i) <> "X" Then
+            ws.Range(ws.Cells(i + 1, 5), ws.Cells(i + 1, 56)).FormulaR1C1 = _
+                "=COUNTIF(R" & DataStartRow & "C:R500C, ""*"" & RC4 & ""*"")"
+        End If
+    Next i
+    
+    ' --- OPRET KOPIER KNAP (B10) ---
+    Set btn = ws.Shapes.AddShape(msoShapeRoundedRectangle, _
+        ws.Cells(10, 2).Left + 5, ws.Cells(10, 2).Top + 2, _
+        ws.Cells(10, 2).Width - 10, ws.Cells(10, 2).Height - 4)
+        
+    With btn
+        .TextFrame.Characters.Text = "KOPIER MARKERING"
+        .TextFrame.Characters.Font.Size = 8
+        .TextFrame.Characters.Font.Bold = True
+        .TextFrame.HorizontalAlignment = xlHAlignCenter
+        .TextFrame.VerticalAlignment = xlVAlignCenter
+        .Fill.ForeColor.RGB = RGB(70, 130, 180)
+        .Line.Visible = msoFalse
+        .OnAction = "KopierMarkering"
+    End With
+    
+    ' --- INDTASTNINGSFELT (C10/D10) ---
+    ws.Cells(10, 3).Value = "VÆLG UGE:"
+    With ws.Cells(10, 3)
+        .Font.Bold = True
+        .HorizontalAlignment = xlRight
+        .VerticalAlignment = xlCenter
+        .Font.Size = 9
+    End With
+    
+    With ws.Cells(10, 4)
+        .Value = Application.IsoWeekNum(Date)
+        .Interior.Color = RGB(255, 255, 0)
+        .Font.Bold = True
+        .HorizontalAlignment = xlCenter
+        .Borders.LineStyle = xlContinuous
+        .Validation.Delete
+        .Validation.Add Type:=xlValidateWholeNumber, AlertStyle:=xlValidAlertStop, _
+            Formula1:="1", Formula2:="52"
+        .Validation.ErrorMessage = "Vælg uge 1-52"
+    End With
+
+    ' 4. OVERSKRIFTER
+    ws.Cells(HeaderRow, 1).Value = "Togt"
+    ws.Cells(HeaderRow, 2).Value = "Stations navn"
+    ws.Cells(HeaderRow, 3).Value = "St. nr."
+    
+    ws.Cells(HeaderRow, 4).Value = "INDHOLD" & vbCrLf & "VALGT UGE"
+    With ws.Cells(HeaderRow, 4)
+        .Font.Bold = True
+        .Interior.Color = RGB(255, 200, 150)
+        .WrapText = True
+        .HorizontalAlignment = xlCenter
+        .Borders.LineStyle = xlContinuous
+    End With
+    
+    ws.Range(ws.Cells(DataStartRow, 4), ws.Cells(500, 4)).FormulaR1C1 = _
+        "=IFERROR(INDEX(RC5:RC56, R10C4), """")"
+        
+    With ws.Range(ws.Cells(DataStartRow, 4), ws.Cells(500, 4))
+        .Interior.Color = RGB(255, 245, 230)
+        .Font.Bold = True
+        .HorizontalAlignment = xlCenter
+        .Borders.LineStyle = xlContinuous
+        .Borders(xlEdgeRight).LineStyle = xlDouble
+        .Locked = True
+        .NumberFormat = "0;;;@"
+    End With
+
+    For i = 1 To 52
+        ws.Cells(HeaderRow, i + 4).Value = i
+    Next i
+    
+    ' 5. MARKERING AF UGE 52
+    With ws.Range("BD1:BD500").Borders(xlEdgeRight)
+        .LineStyle = xlContinuous
+        .Weight = xlThick
+        .Color = RGB(0, 0, 0)
+    End With
+    
+    ' 6. TOTAL-KOLONNER
+    CurrentCol = 57
+    For i = 0 To UBound(Codes)
+        If Codes(i) <> "X" Then
+            ws.Cells(HeaderRow, CurrentCol).Value = Codes(i)
+            ws.Range(ws.Cells(DataStartRow, CurrentCol), ws.Cells(500, CurrentCol)).FormulaR1C1 = _
+                "=COUNTIF(RC5:RC56, ""*"" & R" & HeaderRow & "C & ""*"")"
+            CurrentCol = CurrentCol + 1
+        End If
+    Next i
+    
+    ' 7. FORMATERING
+    ws.Range("E1:BD" & NumCodes).NumberFormat = "0;;;@"
+    ws.Range(ws.Cells(DataStartRow, 57), ws.Cells(500, 75)).NumberFormat = "0;;;@"
+    
+    With ws.Range(ws.Cells(HeaderRow, 1), ws.Cells(HeaderRow, CurrentCol - 1))
+        .Font.Bold = True
+        .Interior.Color = RGB(64, 64, 64)
+        .Font.Color = vbWhite
+        .HorizontalAlignment = xlCenter
+        .VerticalAlignment = xlCenter
+    End With
+    
+    ' 9. EKSEMPEL DATA
+    ws.Cells(DataStartRow, 1).Value = 1: ws.Cells(DataStartRow, 2).Value = "Mølleåen": ws.Cells(DataStartRow, 3).Value = "ST01"
+    ws.Cells(DataStartRow + 1, 1).Value = 2: ws.Cells(DataStartRow + 1, 2).Value = "Gudenåen": ws.Cells(DataStartRow + 1, 3).Value = "ST02"
+    ws.Cells(DataStartRow + 2, 1).Value = 3: ws.Cells(DataStartRow + 2, 2).Value = "Odense Å": ws.Cells(DataStartRow + 2, 3).Value = "ST03"
+    
+    ' 10. JUSTERINGER
+    ws.Columns("A:A").ColumnWidth = 20
+    ws.Columns("B:B").ColumnWidth = 20
+    ws.Columns("C:C").ColumnWidth = 20
+    ws.Columns("D:D").ColumnWidth = 10
+    ws.Range(ws.Columns(5), ws.Columns(56)).ColumnWidth = 3
+    ws.Range(ws.Columns(57), ws.Columns(75)).ColumnWidth = 4
+    
+    ws.Range("E" & DataStartRow).Select
+    ActiveWindow.FreezePanes = True
+    
+    Application.MacroOptions Macro:="MarkerSomProvesvar", Description:="Markerer celle som Prøvesvar (Blå/Rød)", ShortcutKey:="m"
+    Application.EnableEvents = True
+    
+    MsgBox "Arket er bygget! Prøv den nye kopieringsknap og de stribede prøvesvar.", vbInformation
+    Exit Sub
+
+Cleanup:
+    Application.EnableEvents = True
+    MsgBox "Fejl: " & Err.Description, vbCritical
+End Sub
+
+' --- OPDARET MAKRO: KOPIER MARKERING (Række for Række) ---
+Sub KopierMarkering()
+    Dim RowArea As Range
+    Dim Cell As Range
+    Dim RowStr As String
+    Dim FinalStr As String
+    Dim SelRange As Range
+    
+    ' Tjek markering
+    If TypeName(Selection) <> "Range" Then
+        MsgBox "Marker venligst nogle celler først.", vbExclamation
+        Exit Sub
+    End If
+    
+    Set SelRange = Selection
+    
+    ' Vi skal iterere gennem hver række i markeringen
+    Dim r As Range
+    
+    ' Loop gennem hver række i det markerede område
+    For Each r In SelRange.Rows
+        RowStr = ""
+        ' Loop gennem cellerne i den enkelte række
+        For Each Cell In r.Cells
+            If Cell.Value <> "" Then
+                ' Saml celler i rækken med mellemrum
+                RowStr = RowStr & Cell.Value & " "
+            End If
+        Next Cell
+        
+        ' Hvis rækken ikke var tom, tilføj den til final string med KOMMA
+        If Trim(RowStr) <> "" Then
+            FinalStr = FinalStr & Trim(RowStr) & ", "
+        End If
+    Next r
+    
+    ' Kopier til udklipsholder
+    If Len(FinalStr) > 0 Then
+        ' Fjern sidste komma og mellemrum
+        FinalStr = Left(FinalStr, Len(FinalStr) - 2)
+        
+        With CreateObject("htmlfile")
+            .ParentWindow.ClipboardData.SetData "text", FinalStr
+        End With
+        MsgBox "Kopieret til udklipsholder:" & vbCrLf & vbCrLf & FinalStr, vbInformation
+    Else
+        MsgBox "De markerede celler er tomme.", vbInformation
+    End If
+    
+    ResetTimer
+End Sub
+
+' --- OPDATERET GENVEJSTAST MAKRO (Ctrl + m) - NU MED STRIBER ---
+Sub MarkerSomProvesvar()
+    Dim DataRange As Range
+    Set DataRange = ActiveSheet.Range("E12:BD500")
+    
+    If Not Intersect(ActiveCell, DataRange) Is Nothing Then
+        If ActiveCell.Value <> "" And UCase(ActiveCell.Value) <> "X" Then
+            ' Sæt baggrund til Blå
+            ActiveCell.Interior.Color = RGB(173, 216, 230)
+            ' TIFØJ RØDE STRIBER
+            ActiveCell.Interior.Pattern = xlPatternLightUp
+            ActiveCell.Interior.PatternColor = vbRed
+        End If
+    End If
+    ResetTimer
+End Sub
+
+' --- TIMER FUNKTIONER ---
+Sub StartTimer()
+    StopTimer
+    RunTime = Now + TimeValue("00:10:00")
+    Application.OnTime RunTime, "CloseAndSave"
+End Sub
+
+Sub StopTimer()
+    On Error Resume Next
+    Application.OnTime RunTime, "CloseAndSave", , False
+    On Error GoTo 0
+End Sub
+
+Sub ResetTimer()
+    StopTimer
+    StartTimer
+End Sub
+
+Sub CloseAndSave()
+    Application.DisplayAlerts = False
+    If Not ThisWorkbook.ReadOnly Then ThisWorkbook.Save
+    ThisWorkbook.Close
+End Sub
