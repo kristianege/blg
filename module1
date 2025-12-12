@@ -1,6 +1,5 @@
 Option Explicit
 
-' --- VARIABEL TIL TIMER (AUTO-SLUK) ---
 Public RunTime As Date
 
 Sub BygMitArk()
@@ -12,15 +11,19 @@ Sub BygMitArk()
     Dim HeaderRow As Integer
     Dim NumCodes As Integer
     Dim CurrentCol As Integer
-    Dim btn As Shape
+    Dim btnCopy As Shape
+    Dim btnReset As Shape
     
+    ' Slå events fra for hastighed
     Application.EnableEvents = False
     On Error GoTo Cleanup
     
     Set ws = ActiveSheet
     
+    ' RYD ALT TOTALT
     ws.Cells.Clear
     ws.DrawingObjects.Delete
+    ws.Cells.FormatConditions.Delete ' VIGTIGT: Fjerner regler der blokerer VBA-farver
     
     ' 1. DEFINITIONER
     Codes = Array("Q", "H", "k", "s", "f", "a", "j", "u", "X")
@@ -46,7 +49,7 @@ Sub BygMitArk()
         .Borders.LineStyle = xlContinuous
     End With
 
-    ' 3. OPSÆTNING AF KODER
+    ' 3. KODER OG BESKRIVELSER
     For i = 0 To UBound(Codes)
         ws.Cells(i + 1, 4).Value = Codes(i)
         With ws.Cells(i + 1, 4)
@@ -71,13 +74,12 @@ Sub BygMitArk()
         End If
     Next i
     
-    ' --- OPRET KOPIER KNAP (B10) ---
-    Set btn = ws.Shapes.AddShape(msoShapeRoundedRectangle, _
-        ws.Cells(10, 2).Left + 5, ws.Cells(10, 2).Top + 2, _
-        ws.Cells(10, 2).Width - 10, ws.Cells(10, 2).Height - 4)
-        
-    With btn
-        .TextFrame.Characters.Text = "KOPIER MARKERING"
+    ' --- KNAPPER ---
+    Set btnCopy = ws.Shapes.AddShape(msoShapeRoundedRectangle, _
+        ws.Cells(10, 2).Left + 2, ws.Cells(10, 2).Top + 2, _
+        ws.Cells(10, 2).Width - 4, ws.Cells(10, 2).Height - 4)
+    With btnCopy
+        .TextFrame.Characters.Text = "KOPIER"
         .TextFrame.Characters.Font.Size = 8
         .TextFrame.Characters.Font.Bold = True
         .TextFrame.HorizontalAlignment = xlHAlignCenter
@@ -87,7 +89,7 @@ Sub BygMitArk()
         .OnAction = "KopierMarkering"
     End With
     
-    ' --- INDTASTNINGSFELT (C10/D10) ---
+    ' --- UGEVALG ---
     ws.Cells(10, 3).Value = "VÆLG UGE:"
     With ws.Cells(10, 3)
         .Font.Bold = True
@@ -176,8 +178,8 @@ Sub BygMitArk()
     
     ' 10. JUSTERINGER
     ws.Columns("A:A").ColumnWidth = 20
-    ws.Columns("B:B").ColumnWidth = 20
-    ws.Columns("C:C").ColumnWidth = 20
+    ws.Columns("B:B").ColumnWidth = 12
+    ws.Columns("C:C").ColumnWidth = 15
     ws.Columns("D:D").ColumnWidth = 10
     ws.Range(ws.Columns(5), ws.Columns(56)).ColumnWidth = 3
     ws.Range(ws.Columns(57), ws.Columns(75)).ColumnWidth = 4
@@ -188,7 +190,7 @@ Sub BygMitArk()
     Application.MacroOptions Macro:="MarkerSomProvesvar", Description:="Markerer celle som Prøvesvar (Blå/Rød)", ShortcutKey:="m"
     Application.EnableEvents = True
     
-    MsgBox "Arket er bygget! Prøv den nye kopieringsknap og de stribede prøvesvar.", vbInformation
+    MsgBox "Arket er bygget helt forfra. Betinget formatering er slettet.", vbInformation
     Exit Sub
 
 Cleanup:
@@ -196,76 +198,55 @@ Cleanup:
     MsgBox "Fejl: " & Err.Description, vbCritical
 End Sub
 
-' --- OPDARET MAKRO: KOPIER MARKERING (Række for Række) ---
 Sub KopierMarkering()
-    Dim RowArea As Range
     Dim Cell As Range
     Dim RowStr As String
     Dim FinalStr As String
     Dim SelRange As Range
-    
-    ' Tjek markering
-    If TypeName(Selection) <> "Range" Then
-        MsgBox "Marker venligst nogle celler først.", vbExclamation
-        Exit Sub
-    End If
-    
-    Set SelRange = Selection
-    
-    ' Vi skal iterere gennem hver række i markeringen
     Dim r As Range
     
-    ' Loop gennem hver række i det markerede område
+    If TypeName(Selection) <> "Range" Then Exit Sub
+    Set SelRange = Selection
+    
     For Each r In SelRange.Rows
         RowStr = ""
-        ' Loop gennem cellerne i den enkelte række
         For Each Cell In r.Cells
-            If Cell.Value <> "" Then
-                ' Saml celler i rækken med mellemrum
-                RowStr = RowStr & Cell.Value & " "
-            End If
+            If Cell.Value <> "" Then RowStr = RowStr & Cell.Value & " "
         Next Cell
-        
-        ' Hvis rækken ikke var tom, tilføj den til final string med KOMMA
-        If Trim(RowStr) <> "" Then
-            FinalStr = FinalStr & Trim(RowStr) & ", "
-        End If
+        If Trim(RowStr) <> "" Then FinalStr = FinalStr & Trim(RowStr) & ", "
     Next r
     
-    ' Kopier til udklipsholder
     If Len(FinalStr) > 0 Then
-        ' Fjern sidste komma og mellemrum
         FinalStr = Left(FinalStr, Len(FinalStr) - 2)
-        
         With CreateObject("htmlfile")
             .ParentWindow.ClipboardData.SetData "text", FinalStr
         End With
-        MsgBox "Kopieret til udklipsholder:" & vbCrLf & vbCrLf & FinalStr, vbInformation
-    Else
-        MsgBox "De markerede celler er tomme.", vbInformation
+        MsgBox "Kopieret: " & FinalStr, vbInformation
     End If
-    
     ResetTimer
 End Sub
 
-' --- OPDATERET GENVEJSTAST MAKRO (Ctrl + m) - NU MED STRIBER ---
 Sub MarkerSomProvesvar()
     Dim DataRange As Range
     Set DataRange = ActiveSheet.Range("E12:BD500")
     
     If Not Intersect(ActiveCell, DataRange) Is Nothing Then
         If ActiveCell.Value <> "" And UCase(ActiveCell.Value) <> "X" Then
-            ' Sæt baggrund til Blå
-            ActiveCell.Interior.Color = RGB(173, 216, 230)
-            ' TIFØJ RØDE STRIBER
-            ActiveCell.Interior.Pattern = xlPatternLightUp
-            ActiveCell.Interior.PatternColor = vbRed
+            If ActiveCell.Interior.Pattern = xlPatternLightUp Then
+                ' Reset til Gul
+                ActiveCell.Interior.Pattern = xlNone
+                ActiveCell.Interior.Color = RGB(255, 255, 224)
+            Else
+                ' Sæt til Blå/Stribet
+                ActiveCell.Interior.Color = RGB(173, 216, 230)
+                ActiveCell.Interior.Pattern = xlPatternLightUp
+                ActiveCell.Interior.PatternColor = vbRed
+            End If
         End If
     End If
     ResetTimer
 End Sub
 
-' --- TIMER FUNKTIONER ---
 Sub StartTimer()
     StopTimer
     RunTime = Now + TimeValue("00:10:00")
