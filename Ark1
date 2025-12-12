@@ -1,35 +1,15 @@
 Option Explicit
 
-Const ValidChars As String = "QHksfajuX"
-
 Private Sub Worksheet_Change(ByVal Target As Range)
+    ' 1. Nulstil Timer ved aktivitet
     ResetTimer
     
+    ' 2. Togt Farver (Kolonne A) - Den beholder vi lokalt da den er simpel
     Dim TogtRange As Range
-    Dim DataRange As Range
-    Dim InputWeekRange As Range
-    Dim Cell As Range
-    Dim TogtColor As Long
-    
-    Dim InputStr As String
-    Dim OutputStr As String
-    Dim i As Integer
-    Dim Char As String
-    Dim MatchIndex As Integer
-    Dim InvalidFound As Boolean
-    
-    Set InputWeekRange = Me.Range("D10")
     Set TogtRange = Me.Range("A12:A500")
-    Set DataRange = Me.Range("E12:BD500")
     
-    If Not Intersect(Target, InputWeekRange) Is Nothing Then Exit Sub
-    If Intersect(Target, Union(TogtRange, DataRange)) Is Nothing Then Exit Sub
-    
-    Application.EnableEvents = False
-    On Error GoTo Cleanup
-    
-    ' --- 1. TOGT FARVER ---
     If Not Intersect(Target, TogtRange) Is Nothing Then
+        Dim Cell As Range
         For Each Cell In Intersect(Target, TogtRange)
             If IsNumeric(Cell.Value) And Cell.Value <> "" Then
                 Select Case Cell.Value
@@ -56,92 +36,24 @@ Private Sub Worksheet_Change(ByVal Target As Range)
         Next Cell
     End If
     
-    ' --- 2. DATA FARVER OG VALIDERINGS-FIX ---
-    If Not Intersect(Target, DataRange) Is Nothing Then
-        For Each Cell In Intersect(Target, DataRange)
-            If Cell.Value <> "" And Not Cell.HasFormula Then
-                InputStr = Cell.Value
-                OutputStr = ""
-                
-                ' Simpel tekst vask (Store bogstaver)
-                ' Vi dropper den avancerede loop-tjek her for stabilitet
-                ' Hvis du vil have validering tilbage, kan den indsættes, 
-                ' men lige nu fokuserer vi på at farverne VIRKER.
-                OutputStr = UCase(InputStr)
-                
-                If Cell.Value <> OutputStr Then
-                    Cell.Value = OutputStr
-                End If
-                
-                ' FARVE LOGIK (Den vigtige del)
-                If InStr(1, Cell.Value, "X", vbTextCompare) > 0 Then
-                    ' Ferie = ALTID Lilla
-                    Cell.Interior.Color = RGB(128, 0, 128)
-                    Cell.Font.Color = vbWhite
-                    Cell.Font.Bold = True
-                    Cell.Interior.Pattern = xlNone
-                Else
-                    ' Normal Kode
-                    Cell.Font.Color = vbBlack
-                    Cell.Font.Bold = False
-                    
-                    ' Er den allerede Grøn? Behold.
-                    ' Er den allerede Blå/Stribet? Behold.
-                    ' Ellers: GUL.
-                    If Cell.Interior.Color = RGB(144, 238, 144) Then
-                        ' Gør intet
-                    ElseIf Cell.Interior.Pattern = xlPatternLightUp Then
-                        ' Gør intet
-                    Else
-                        ' TVING GUL
-                        Cell.Interior.Color = RGB(255, 255, 224)
-                        Cell.Interior.Pattern = xlNone
-                    End If
-                End If
-            Else
-                ' Hvis tom -> Rens
-                If Not Cell.HasFormula Then
-                    Cell.Interior.ColorIndex = xlNone
-                    Cell.Interior.Pattern = xlNone
-                    Cell.Font.Color = vbBlack
-                    Cell.Font.Bold = False
-                End If
-            End If
-        Next Cell
-    End If
-
-Cleanup:
-    Application.EnableEvents = True
-End Sub
-
-' --- DOBBELTKLIK LOGIK ---
-Private Sub Worksheet_BeforeDoubleClick(ByVal Target As Range, Cancel As Boolean)
-    ResetTimer
+    ' 3. Data Indtastning (E12:BD500) -> Send til Module1
     Dim DataRange As Range
     Set DataRange = Me.Range("E12:BD500")
     
     If Not Intersect(Target, DataRange) Is Nothing Then
-        ' Kun hvis celle har indhold og ikke X
-        If Target.Value <> "" And InStr(1, Target.Value, "X", vbTextCompare) = 0 Then
-            
-            Cancel = True
-            
-            ' Hvis Stribet (Prøvesvar) -> Låst
-            If Target.Interior.Pattern = xlPatternLightUp Then
-                MsgBox "Prøvesvar låst. Brug Ctrl+m.", vbInformation
-                Exit Sub
-            End If
-            
-            ' Hvis den er Grøn -> Gør Gul
-            ' Vi bruger en lille margin i farve-tjekket, hvis Excel driller med nuancer
-            If Target.Interior.Color = RGB(144, 238, 144) Then
-                Target.Interior.Color = RGB(255, 255, 224) ' Gul
-            Else
-                ' Alt andet (Gul, Hvid, etc) -> Gør Grøn
-                Target.Interior.Color = RGB(144, 238, 144) ' Grøn
-            End If
-            
-            Target.Interior.Pattern = xlNone
+        ' Kald logikken i Module1
+        Call HåndterIndtastning(Intersect(Target, DataRange))
+    End If
+End Sub
+
+Private Sub Worksheet_BeforeDoubleClick(ByVal Target As Range, Cancel As Boolean)
+    Dim DataRange As Range
+    Set DataRange = Me.Range("E12:BD500")
+    
+    If Not Intersect(Target, DataRange) Is Nothing Then
+        If Target.Value <> "" Then
+            ' Kald logikken i Module1
+            Call HåndterDobbeltklik(Target, Cancel)
         End If
     End If
 End Sub
