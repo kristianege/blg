@@ -3,6 +3,9 @@ Option Explicit
 Const ValidChars As String = "QHksfajuX"
 
 Private Sub Worksheet_Change(ByVal Target As Range)
+    ' --- SIKKERHEDSVENTIL ---
+    If Target.Count > 10 Then Exit Sub
+    
     ResetTimer
     
     Dim TogtRange As Range
@@ -18,14 +21,16 @@ Private Sub Worksheet_Change(ByVal Target As Range)
     Dim MatchIndex As Integer
     Dim InvalidFound As Boolean
     
+    ' Definer områder
     Set InputWeekRange = Me.Range("D10")
     Set TogtRange = Me.Range("A12:A500")
     Set DataRange = Me.Range("E12:BD500")
     
+    ' Tjek om vi er i et relevant område
     If Not Intersect(Target, InputWeekRange) Is Nothing Then Exit Sub
     If Intersect(Target, Union(TogtRange, DataRange)) Is Nothing Then Exit Sub
     
-    ' --- 1. TOGT FARVER ---
+    ' --- 1. TOGT FARVER (Kolonne A) ---
     If Not Intersect(Target, TogtRange) Is Nothing Then
         For Each Cell In Intersect(Target, TogtRange)
             If IsNumeric(Cell.Value) And Cell.Value <> "" Then
@@ -54,8 +59,9 @@ Private Sub Worksheet_Change(ByVal Target As Range)
         Next Cell
     End If
     
-    ' --- 2. DATA VALIDERING ---
+    ' --- 2. DATA VALIDERING & FARVER ---
     If Not Intersect(Target, DataRange) Is Nothing Then
+        
         Application.EnableEvents = False
         On Error GoTo Cleanup
         
@@ -65,6 +71,7 @@ Private Sub Worksheet_Change(ByVal Target As Range)
                 OutputStr = ""
                 InvalidFound = False
                 
+                ' Ret store/små bogstaver
                 For i = 1 To Len(InputStr)
                     Char = Mid(InputStr, i, 1)
                     MatchIndex = InStr(1, ValidChars, Char, vbTextCompare)
@@ -80,35 +87,43 @@ Private Sub Worksheet_Change(ByVal Target As Range)
                     If InvalidFound Then MsgBox "Ugyldigt tegn! Kun: " & ValidChars, vbExclamation
                 End If
                 
+                ' FARVE LOGIK
                 If InStr(1, Cell.Value, "X", vbTextCompare) > 0 Then
+                    ' Ferie = Lilla
                     Cell.Interior.Color = RGB(128, 0, 128)
                     Cell.Font.Color = vbWhite
                     Cell.Font.Bold = True
-                    Cell.Interior.Pattern = xlNone ' Fjern striber
+                    Cell.Interior.Pattern = xlNone
                 Else
+                    ' Normal Kode
                     Cell.Font.Color = vbBlack
                     Cell.Font.Bold = False
                     
-                    ' Tjek om cellen er "Prøvesvar" (Stribet) - Hvis ja, behold den
-                    If Cell.Interior.Pattern = xlPatternLightUp Then
-                        ' Gør intet, behold striber
+                    ' Hvis cellen allerede er GRØN, behold den
+                    If Cell.Interior.Color = RGB(144, 238, 144) Then
+                        ' Gør intet
+                        
+                    ' Hvis cellen er STRIBET (Prøvesvar), behold den
+                    ElseIf Cell.Interior.Pattern = xlPatternLightUp Then
+                        ' Gør intet
+                        
+                    ' Ellers gør den GUL (Planlagt - Oprindelig)
                     Else
-                        ' Hvis ikke stribet og ikke grøn, sæt til Gul
-                        If Cell.Interior.Color <> RGB(144, 238, 144) Then
-                            Cell.Interior.Color = RGB(255, 255, 224)
-                            Cell.Interior.Pattern = xlNone
-                        End If
+                        Cell.Interior.Color = RGB(255, 255, 224)
+                        Cell.Interior.Pattern = xlNone
                     End If
                 End If
             Else
+                ' Hvis cellen tømmes
                 If Not Cell.HasFormula Then
                     Cell.Interior.ColorIndex = xlNone
-                    Cell.Interior.Pattern = xlNone ' Fjern striber
+                    Cell.Interior.Pattern = xlNone
                     Cell.Font.Color = vbBlack
                     Cell.Font.Bold = False
                 End If
             End If
         Next Cell
+        
         Application.EnableEvents = True
     End If
     Exit Sub
@@ -117,21 +132,36 @@ Cleanup:
     Application.EnableEvents = True
 End Sub
 
+' --- RETTET DOBBELTKLIK FUNKTION ---
 Private Sub Worksheet_BeforeDoubleClick(ByVal Target As Range, Cancel As Boolean)
     ResetTimer
     Dim DataRange As Range
     Set DataRange = Me.Range("E12:BD500")
+    
     If Not Intersect(Target, DataRange) Is Nothing Then
+        ' Tjek om cellen har indhold og ikke er X
         If Target.Value <> "" And InStr(1, Target.Value, "X", vbTextCompare) = 0 Then
-            Cancel = True
-            ' Fjern altid striber ved dobbeltklik
-            Target.Interior.Pattern = xlNone 
             
-            If Target.Interior.Color = RGB(144, 238, 144) Then
-                Target.Interior.Color = RGB(255, 255, 224) ' Gul
-            Else
-                Target.Interior.Color = RGB(144, 238, 144) ' Grøn
+            Cancel = True ' Stop redigering af cellen
+            
+            ' 1. HVIS STRIBER (Prøvesvar), STOP HER (Låst)
+            If Target.Interior.Pattern = xlPatternLightUp Then
+                MsgBox "Prøvesvar er modtaget (Låst)." & vbCrLf & "Brug Ctrl+m for at ændre status.", vbInformation
+                Exit Sub
             End If
+            
+            ' 2. SKIFT FARVE LOGIK
+            If Target.Interior.Color = RGB(144, 238, 144) Then
+                ' HVIS GRØN -> GØR GUL (OPRINDELIG)
+                Target.Interior.Color = RGB(255, 255, 224)
+            Else
+                ' HVIS GUL (ELLER ANDET) -> GØR GRØN
+                Target.Interior.Color = RGB(144, 238, 144)
+            End If
+            
+            ' Sørg for at mønster er væk (hvis der var rester)
+            Target.Interior.Pattern = xlNone
+            
         End If
     End If
 End Sub
