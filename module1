@@ -1,7 +1,137 @@
 Option Explicit
 
+' --- KONSTANTER TIL FARVER (SÅ DE ER ENS OVERALT) ---
+Public Const ColGreen As Long = 9498256   ' RGB(144, 238, 144) - Udført
+Public Const ColYellow As Long = 14745599 ' RGB(255, 255, 224) - Planlagt
+Public Const ColBlue As Long = 15128749   ' RGB(173, 216, 230) - Prøvesvar
+Public Const ColPurple As Long = 8388736  ' RGB(128, 0, 128)   - Ferie
+
+' Timer variabel
 Public RunTime As Date
 
+' ==========================================
+'  DEL 1: LOGIK TIL FARVESKIFT (NY TAKTIK)
+' ==========================================
+
+' Kaldes når man skriver i en celle
+Sub HåndterIndtastning(Target As Range)
+    Dim Cell As Range
+    Dim Txt As String
+    
+    ' Slå overvågning fra mens vi arbejder
+    Application.EnableEvents = False
+    On Error GoTo ExitHandler
+    
+    For Each Cell In Target
+        If Cell.Value <> "" And Not Cell.HasFormula Then
+            Txt = UCase(Cell.Value)
+            
+            ' 1. Ret til store bogstaver hvis nødvendigt
+            If Cell.Value <> Txt Then Cell.Value = Txt
+            
+            ' 2. Bestem farve
+            If InStr(1, Txt, "X") > 0 Then
+                ' Ferie
+                Cell.Interior.Color = ColPurple
+                Cell.Font.Color = vbWhite
+                Cell.Font.Bold = True
+                Cell.Interior.Pattern = xlNone
+            Else
+                ' Normal - Gør KUN Gul hvis den er "ren" (dvs. ikke allerede Grøn/Blå)
+                ' Dette sikrer at vi ikke overskriver en udført opgave ved en tastefejl
+                Cell.Font.Color = vbBlack
+                Cell.Font.Bold = False
+                
+                If Cell.Interior.Color = ColGreen Then
+                    ' Behold Grøn
+                ElseIf Cell.Interior.Pattern = xlPatternLightUp Then
+                    ' Behold Striber
+                Else
+                    ' Sæt til Standard Gul
+                    Cell.Interior.Color = ColYellow
+                    Cell.Interior.Pattern = xlNone
+                End If
+            End If
+        Else
+            ' Tom celle - Ryd alt
+            If Not Cell.HasFormula Then
+                Cell.Interior.ColorIndex = xlNone
+                Cell.Interior.Pattern = xlNone
+                Cell.Font.Color = vbBlack
+                Cell.Font.Bold = False
+            End If
+        End If
+    Next Cell
+
+ExitHandler:
+    Application.EnableEvents = True
+    ResetTimer
+End Sub
+
+' Kaldes når man Dobbeltklikker
+Sub HåndterDobbeltklik(Target As Range, ByRef Cancel As Boolean)
+    ' Slå events fra
+    Application.EnableEvents = False
+    On Error GoTo ExitHandler
+    
+    Cancel = True ' Stop excel fra at gå ind i cellen
+    
+    ' 1. Tjek om det er Ferie (X)
+    If InStr(1, Target.Value, "X", vbTextCompare) > 0 Then GoTo ExitHandler
+    
+    ' 2. Tjek om det er Prøvesvar (Stribet) - Låst
+    If Target.Interior.Pattern = xlPatternLightUp Then
+        MsgBox "Prøvesvar er registreret." & vbCrLf & "Brug Ctrl+m for at ændre.", vbInformation
+        GoTo ExitHandler
+    End If
+    
+    ' 3. SKIFT MELLEM GRØN OG GUL (Selve logikken du efterspurgte)
+    ' Vi bruger en lille margin i farvesammenligningen for robusthed
+    If Target.Interior.Color = ColGreen Then
+        ' Er den Grøn? -> Gør Gul
+        Target.Interior.Color = ColYellow
+    Else
+        ' Er den Gul (eller hvid/andet)? -> Gør Grøn
+        Target.Interior.Color = ColGreen
+    End If
+    
+    ' Sikr at striber er væk
+    Target.Interior.Pattern = xlNone
+
+ExitHandler:
+    Application.EnableEvents = True
+    ResetTimer
+End Sub
+
+' Kaldes ved Ctrl+m
+Sub MarkerSomProvesvar()
+    Dim DataRange As Range
+    Set DataRange = ActiveSheet.Range("E12:BD500")
+    
+    If Not Intersect(ActiveCell, DataRange) Is Nothing Then
+        If ActiveCell.Value <> "" And UCase(ActiveCell.Value) <> "X" Then
+            
+            ' Tænd/Sluk logik
+            If ActiveCell.Interior.Pattern = xlPatternLightUp Then
+                ' Sluk -> Tilbage til Gul
+                ActiveCell.Interior.Pattern = xlNone
+                ActiveCell.Interior.Color = ColYellow
+            Else
+                ' Tænd -> Blå med Røde striber
+                ActiveCell.Interior.Color = ColBlue
+                ActiveCell.Interior.Pattern = xlPatternLightUp
+                ActiveCell.Interior.PatternColor = vbRed
+            End If
+            
+        End If
+    End If
+    ResetTimer
+End Sub
+
+
+' ==========================================
+'  DEL 2: BYG ARKET (DESIGN)
+' ==========================================
 Sub BygMitArk()
     Dim ws As Worksheet
     Dim i As Integer
@@ -10,22 +140,18 @@ Sub BygMitArk()
     Dim DataStartRow As Integer
     Dim HeaderRow As Integer
     Dim NumCodes As Integer
-    Dim CurrentCol As Integer
     Dim btnCopy As Shape
     Dim btnReset As Shape
     
-    ' Slå events fra for hastighed
+    Application.EnableEvents = True ' SIKKERHEDSNET
     Application.EnableEvents = False
     On Error GoTo Cleanup
     
     Set ws = ActiveSheet
-    
-    ' RYD ALT TOTALT
     ws.Cells.Clear
     ws.DrawingObjects.Delete
-    ws.Cells.FormatConditions.Delete ' VIGTIGT: Fjerner regler der blokerer VBA-farver
+    ws.Cells.FormatConditions.Delete ' Slet betinget formatering!
     
-    ' 1. DEFINITIONER
     Codes = Array("Q", "H", "k", "s", "f", "a", "j", "u", "X")
     Descriptions = Array("Vandføringsmåling", "Vandstand", "Kemi", "Salinitet", _
                          "Jern", "Alkalinitet", "Jordvand", "Jordvand udvidet", "FERIE")
@@ -34,7 +160,7 @@ Sub BygMitArk()
     HeaderRow = NumCodes + 2
     DataStartRow = HeaderRow + 1
     
-    ' 2. VEJLEDNING
+    ' Vejledning
     With ws.Range(ws.Cells(1, 1), ws.Cells(NumCodes, 1))
         .Merge
         .Value = "VEJLEDNING:" & vbCrLf & vbCrLf & _
@@ -49,7 +175,7 @@ Sub BygMitArk()
         .Borders.LineStyle = xlContinuous
     End With
 
-    ' 3. KODER OG BESKRIVELSER
+    ' Koder C+D
     For i = 0 To UBound(Codes)
         ws.Cells(i + 1, 4).Value = Codes(i)
         With ws.Cells(i + 1, 4)
@@ -59,7 +185,6 @@ Sub BygMitArk()
             .VerticalAlignment = xlCenter
             .Borders.LineStyle = xlContinuous
         End With
-        
         ws.Cells(i + 1, 3).Value = Descriptions(i)
         With ws.Cells(i + 1, 3)
             .Font.Italic = True
@@ -67,14 +192,13 @@ Sub BygMitArk()
             .HorizontalAlignment = xlRight
             .Interior.Color = xlNone
         End With
-        
         If Codes(i) <> "X" Then
             ws.Range(ws.Cells(i + 1, 5), ws.Cells(i + 1, 56)).FormulaR1C1 = _
                 "=COUNTIF(R" & DataStartRow & "C:R500C, ""*"" & RC4 & ""*"")"
         End If
     Next i
     
-    ' --- KNAPPER ---
+    ' Knap: Kopier
     Set btnCopy = ws.Shapes.AddShape(msoShapeRoundedRectangle, _
         ws.Cells(10, 2).Left + 2, ws.Cells(10, 2).Top + 2, _
         ws.Cells(10, 2).Width - 4, ws.Cells(10, 2).Height - 4)
@@ -89,7 +213,23 @@ Sub BygMitArk()
         .OnAction = "KopierMarkering"
     End With
     
-    ' --- UGEVALG ---
+    ' Knap: Reset (Nødhjælp)
+    ws.Range("A10").RowHeight = 25
+    Set btnReset = ws.Shapes.AddShape(msoShapeRoundedRectangle, _
+        ws.Cells(10, 1).Left + 2, ws.Cells(10, 1).Top + 2, _
+        ws.Cells(10, 1).Width - 4, ws.Cells(10, 1).Height - 4)
+    With btnReset
+        .TextFrame.Characters.Text = "GENSTART"
+        .TextFrame.Characters.Font.Size = 8
+        .TextFrame.Characters.Font.Bold = True
+        .TextFrame.HorizontalAlignment = xlHAlignCenter
+        .TextFrame.VerticalAlignment = xlVAlignCenter
+        .Fill.ForeColor.RGB = RGB(200, 0, 0)
+        .Line.Visible = msoFalse
+        .OnAction = "NodGenstart"
+    End With
+    
+    ' Input felter
     ws.Cells(10, 3).Value = "VÆLG UGE:"
     With ws.Cells(10, 3)
         .Font.Bold = True
@@ -97,7 +237,6 @@ Sub BygMitArk()
         .VerticalAlignment = xlCenter
         .Font.Size = 9
     End With
-    
     With ws.Cells(10, 4)
         .Value = Application.IsoWeekNum(Date)
         .Interior.Color = RGB(255, 255, 0)
@@ -105,28 +244,16 @@ Sub BygMitArk()
         .HorizontalAlignment = xlCenter
         .Borders.LineStyle = xlContinuous
         .Validation.Delete
-        .Validation.Add Type:=xlValidateWholeNumber, AlertStyle:=xlValidAlertStop, _
-            Formula1:="1", Formula2:="52"
-        .Validation.ErrorMessage = "Vælg uge 1-52"
+        .Validation.Add Type:=xlValidateWholeNumber, AlertStyle:=xlValidAlertStop, Formula1:="1", Formula2:="52"
     End With
 
-    ' 4. OVERSKRIFTER
+    ' Headers
     ws.Cells(HeaderRow, 1).Value = "Togt"
     ws.Cells(HeaderRow, 2).Value = "Stations navn"
     ws.Cells(HeaderRow, 3).Value = "St. nr."
-    
     ws.Cells(HeaderRow, 4).Value = "INDHOLD" & vbCrLf & "VALGT UGE"
-    With ws.Cells(HeaderRow, 4)
-        .Font.Bold = True
-        .Interior.Color = RGB(255, 200, 150)
-        .WrapText = True
-        .HorizontalAlignment = xlCenter
-        .Borders.LineStyle = xlContinuous
-    End With
     
-    ws.Range(ws.Cells(DataStartRow, 4), ws.Cells(500, 4)).FormulaR1C1 = _
-        "=IFERROR(INDEX(RC5:RC56, R10C4), """")"
-        
+    ws.Range(ws.Cells(DataStartRow, 4), ws.Cells(500, 4)).FormulaR1C1 = "=IFERROR(INDEX(RC5:RC56, R10C4), """")"
     With ws.Range(ws.Cells(DataStartRow, 4), ws.Cells(500, 4))
         .Interior.Color = RGB(255, 245, 230)
         .Font.Bold = True
@@ -141,14 +268,14 @@ Sub BygMitArk()
         ws.Cells(HeaderRow, i + 4).Value = i
     Next i
     
-    ' 5. MARKERING AF UGE 52
+    ' Formatering
     With ws.Range("BD1:BD500").Borders(xlEdgeRight)
         .LineStyle = xlContinuous
         .Weight = xlThick
         .Color = RGB(0, 0, 0)
     End With
     
-    ' 6. TOTAL-KOLONNER
+    Dim CurrentCol As Integer
     CurrentCol = 57
     For i = 0 To UBound(Codes)
         If Codes(i) <> "X" Then
@@ -159,7 +286,6 @@ Sub BygMitArk()
         End If
     Next i
     
-    ' 7. FORMATERING
     ws.Range("E1:BD" & NumCodes).NumberFormat = "0;;;@"
     ws.Range(ws.Cells(DataStartRow, 57), ws.Cells(500, 75)).NumberFormat = "0;;;@"
     
@@ -171,31 +297,35 @@ Sub BygMitArk()
         .VerticalAlignment = xlCenter
     End With
     
-    ' 9. EKSEMPEL DATA
-    ws.Cells(DataStartRow, 1).Value = 1: ws.Cells(DataStartRow, 2).Value = "Mølleåen": ws.Cells(DataStartRow, 3).Value = "ST01"
-    ws.Cells(DataStartRow + 1, 1).Value = 2: ws.Cells(DataStartRow + 1, 2).Value = "Gudenåen": ws.Cells(DataStartRow + 1, 3).Value = "ST02"
-    ws.Cells(DataStartRow + 2, 1).Value = 3: ws.Cells(DataStartRow + 2, 2).Value = "Odense Å": ws.Cells(DataStartRow + 2, 3).Value = "ST03"
-    
-    ' 10. JUSTERINGER
+    ' Layout
     ws.Columns("A:A").ColumnWidth = 20
     ws.Columns("B:B").ColumnWidth = 12
     ws.Columns("C:C").ColumnWidth = 15
     ws.Columns("D:D").ColumnWidth = 10
     ws.Range(ws.Columns(5), ws.Columns(56)).ColumnWidth = 3
     ws.Range(ws.Columns(57), ws.Columns(75)).ColumnWidth = 4
-    
     ws.Range("E" & DataStartRow).Select
     ActiveWindow.FreezePanes = True
     
-    Application.MacroOptions Macro:="MarkerSomProvesvar", Description:="Markerer celle som Prøvesvar (Blå/Rød)", ShortcutKey:="m"
-    Application.EnableEvents = True
+    ' Key binding
+    Application.MacroOptions Macro:="MarkerSomProvesvar", Description:="Blå/Rød", ShortcutKey:="m"
     
-    MsgBox "Arket er bygget helt forfra. Betinget formatering er slettet.", vbInformation
+    Application.EnableEvents = True
+    MsgBox "Arket er bygget og klar.", vbInformation
     Exit Sub
 
 Cleanup:
     Application.EnableEvents = True
     MsgBox "Fejl: " & Err.Description, vbCritical
+End Sub
+
+' ==========================================
+'  DEL 3: HJÆLPEFUNKTIONER & TIMER
+' ==========================================
+
+Sub NodGenstart()
+    Application.EnableEvents = True
+    MsgBox "Systemet er genstartet. Prøv at dobbeltklikke nu.", vbInformation
 End Sub
 
 Sub KopierMarkering()
@@ -222,27 +352,6 @@ Sub KopierMarkering()
             .ParentWindow.ClipboardData.SetData "text", FinalStr
         End With
         MsgBox "Kopieret: " & FinalStr, vbInformation
-    End If
-    ResetTimer
-End Sub
-
-Sub MarkerSomProvesvar()
-    Dim DataRange As Range
-    Set DataRange = ActiveSheet.Range("E12:BD500")
-    
-    If Not Intersect(ActiveCell, DataRange) Is Nothing Then
-        If ActiveCell.Value <> "" And UCase(ActiveCell.Value) <> "X" Then
-            If ActiveCell.Interior.Pattern = xlPatternLightUp Then
-                ' Reset til Gul
-                ActiveCell.Interior.Pattern = xlNone
-                ActiveCell.Interior.Color = RGB(255, 255, 224)
-            Else
-                ' Sæt til Blå/Stribet
-                ActiveCell.Interior.Color = RGB(173, 216, 230)
-                ActiveCell.Interior.Pattern = xlPatternLightUp
-                ActiveCell.Interior.PatternColor = vbRed
-            End If
-        End If
     End If
     ResetTimer
 End Sub
