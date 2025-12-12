@@ -1,0 +1,30 @@
+Option Explicit
+
+Private Sub Workbook_Open()
+    Dim CurrentWeek As Integer
+    
+    Application.OnKey "^m", "MarkerSomProvesvar"
+    
+    ' Start timer ved åbning
+    StartTimer
+    
+    ' Sæt aktuel uge i D10
+    CurrentWeek = Application.IsoWeekNum(Date)
+    On Error Resume Next
+    ActiveSheet.Range("D10").Value = CurrentWeek
+    On Error GoTo 0
+End Sub
+
+Private Sub Workbook_BeforeClose(Cancel As Boolean)
+    StopTimer
+End Sub
+
+' --- VIGTIGT: Reager når der ændres INDHOLD i celler ---
+Private Sub Workbook_SheetChange(ByVal Sh As Object, ByVal Target As Range)
+    ResetTimer
+End Sub
+
+' --- VIGTIGT: Reager når man bare KLIKKER rundt (Selection Change) ---
+Private Sub Workbook_SheetSelectionChange(ByVal Sh As Object, ByVal Target As Range)
+    ResetTimer
+End Sub
