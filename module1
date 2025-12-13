@@ -327,7 +327,14 @@ Sub StartTimer()
     RunTime = Now + TimeSerial(0, AutoCloseMinutes, 0)
     ' Advarsel planlægges 5 minutter før luk
     WarnTime = RunTime - TimeSerial(0, 5, 0)
+    ' Persistér tidspunkterne i workbook-names så vi kan genoprette efter genstart/sleep
     On Error Resume Next
+    If NameExists("AutoCloseRunTime") Then ThisWorkbook.Names("AutoCloseRunTime").Delete
+    If NameExists("AutoCloseWarnTime") Then ThisWorkbook.Names("AutoCloseWarnTime").Delete
+    ThisWorkbook.Names.Add Name:="AutoCloseRunTime", RefersTo:="=""" & Format$(RunTime, "yyyy-mm-dd HH:NN:SS") & """"
+    ThisWorkbook.Names.Add Name:="AutoCloseWarnTime", RefersTo:="=""" & Format$(WarnTime, "yyyy-mm-dd HH:NN:SS") & """"
+    ' Opdater synlig celle
+    UpdateCloseTimeCell RunTime
     Application.OnTime WarnTime, "WarnBeforeClose"
     Application.OnTime RunTime, "CloseAndSave"
     On Error GoTo 0
@@ -344,6 +351,11 @@ Sub StopTimer()
     ' Annuller eventuel per-second UpdateWarn
     On Error Resume Next
     Application.OnTime WarnUpdateTime, "UpdateWarn", , False
+    ' Fjern persisterede navne
+    If NameExists("AutoCloseRunTime") Then ThisWorkbook.Names("AutoCloseRunTime").Delete
+    If NameExists("AutoCloseWarnTime") Then ThisWorkbook.Names("AutoCloseWarnTime").Delete
+    ' Ryd cellevisning
+    ClearCloseTimeCell
     On Error GoTo 0
     On Error GoTo 0
 End Sub
@@ -371,6 +383,35 @@ Sub StartWarningCountdown(ByVal seconds As Long)
     ' Sæt første update til nu + 1 sek
     WarnUpdateTime = Now + TimeSerial(0, 0, 1)
     Application.OnTime WarnUpdateTime, "UpdateWarn"
+End Sub
+
+Function NameExists(ByVal nm As String) As Boolean
+    On Error Resume Next
+    Dim t As String
+    t = ThisWorkbook.Names(nm).Name
+    NameExists = (Err.Number = 0)
+    Err.Clear
+    On Error GoTo 0
+End Function
+
+Sub UpdateCloseTimeCell(ByVal t As Date)
+    ' Skriv planlagt lukketid i en synlig celle (`B1`) på aktivt ark.
+    ' Viser kun klokkeslæt i formatet "Lukker kl: HH:MM"
+    On Error Resume Next
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.ActiveSheet
+    If ws Is Nothing Then Exit Sub
+    SafeSetValue ws.Range("B1"), "Lukker kl: " & Format$(t, "hh:nn")
+    On Error GoTo 0
+End Sub
+
+Sub ClearCloseTimeCell()
+    On Error Resume Next
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.ActiveSheet
+    If ws Is Nothing Then Exit Sub
+    SafeSetValue ws.Range("B1"), ""
+    On Error GoTo 0
 End Sub
 
 Sub UpdateWarn()
