@@ -1,8 +1,20 @@
 Option Explicit
 
+'' =========================================
+'' ThisWorkbook - Workbook lifecycle hooks
+''
+'' Formål:
+'' - Initialisere bindings (forkorte taster) og starte autosluk-timer ved åbning
+'' - Stoppe timer ved luk
+'' - Propagere brugeraktivitet (sheet change/selection) til ResetTimer
+''
+'' Bemærk: `StartTimer`, `StopTimer` og `ResetTimer` findes i `module1`.
+'' =========================================
+
 Private Sub Workbook_Open()
     Dim CurrentWeek As Integer
     Application.OnKey "^m", "MarkerSomProvesvar"
+    ' Ved åbning: binder Ctrl+M, starter autosluk og udfylder ugefelt
     StartTimer
     CurrentWeek = Application.IsoWeekNum(Date)
     On Error Resume Next
@@ -11,13 +23,16 @@ Private Sub Workbook_Open()
 End Sub
 
 Private Sub Workbook_BeforeClose(Cancel As Boolean)
+    ' Stop timer ved luk for at undgå planlagte OnTime-kald efter luk
     StopTimer
 End Sub
 
 Private Sub Workbook_SheetChange(ByVal Sh As Object, ByVal Target As Range)
+    ' Propagér aktivitet til ResetTimer så autosluk genstartes
     ResetTimer
 End Sub
 
 Private Sub Workbook_SheetSelectionChange(ByVal Sh As Object, ByVal Target As Range)
+    ' Propagér aktivitet til ResetTimer ved markørskift
     ResetTimer
 End Sub
