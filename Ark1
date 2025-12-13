@@ -1,7 +1,20 @@
 Option Explicit
 
+'' =========================================
+'' Ark1 (Worksheet) - Event hooks for user interaction
+''
+'' Formål:
+'' - Fange brugers aktiviteter i arket (ændringer, dobbeltklik, selection)
+'' - Give hurtig respons: farvning af kolonne A, videresende data-events
+''
+'' Integration:
+'' - Sender datacalls for området `E12:BD500` til `HåndterIndtastning` og `HåndterDobbeltklik`
+'' - Kalder `ResetTimer` ved brugeraktivitet for at holde autosluk i sync
+'' =========================================
+
 Private Sub Worksheet_Change(ByVal Target As Range)
-    ' 1. Nulstil Timer ved aktivitet
+    ' 1) Nulstil autosluk timer ved enhver brugeraktivitet
+    '    (forlænger autosluk så længe brugeren arbejder)
     ResetTimer
     
     ' 2. Togt Farver (Kolonne A) - Den beholder vi lokalt da den er simpel
@@ -41,7 +54,9 @@ Private Sub Worksheet_Change(ByVal Target As Range)
     Set DataRange = Me.Range("E12:BD500")
     
     If Not Intersect(Target, DataRange) Is Nothing Then
-        ' Kald logikken i Module1
+        ' 3) Hvis der skrives i data-området, videresend de berørte celler
+        '    til `HåndterIndtastning` i `module1` som står for validering
+        '    og styling. Intersect sikrer at vi kun sender relevante celler.
         Call HåndterIndtastning(Intersect(Target, DataRange))
     End If
 End Sub
@@ -52,7 +67,7 @@ Private Sub Worksheet_BeforeDoubleClick(ByVal Target As Range, Cancel As Boolean
     
     If Not Intersect(Target, DataRange) Is Nothing Then
         If Target.Value <> "" Then
-            ' Kald logikken i Module1
+            ' Videresend dobbeltklik til module1 som håndterer toggle-logik
             Call HåndterDobbeltklik(Target, Cancel)
         End If
     End If
