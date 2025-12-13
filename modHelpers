@@ -1,0 +1,109 @@
+Option Explicit
+
+'' =========================================
+'' modHelpers - Hjælpebibliotek for arket
+''
+'' Formål:
+'' - Samle fælles konstanter (farver) og hjælpefunktioner ét sted
+'' - Gøre det nemt at ændre tilladte koder, styling og små utilities
+''
+'' Vigtige funktioner/konstanter i dette modul:
+'' - GetCodes(): returnerer array af tilladte koder (inkl. 'X' for ferie)
+'' - SafeSetValue(c, v): skriver til celle uden at udløse events
+'' - NormalizeCellText(s): fjerner ugyldige tegn og normaliserer case
+'' - ApplyStyleForCodes(c, cleaned): anvender baggrund/tekst baseret på værdi
+''
+'' Bemærkninger om integration:
+'' - Dette modul bruges af `module1` for validering og styling
+'' - Farve-konstanter er gentaget her for at sikre at alle moduler er synkroniserede
+'' =========================================
+
+' Hjælpe-modul: centraliserede koder og små utilities
+
+' --- KONSTANTER (kan genbruges fra andre moduler hvis ønsket) ---
+Public Const ColGreen As Long = vbGreen   ' Standard Grøn
+Public Const ColYellow As Long = vbYellow ' Standard Gul
+Public Const ColBlue As Long = vbBlue     ' Standard Blå
+Public Const ColPurple As Long = 10498160 ' En lilla farve til Ferie
+
+' Returnerer de tilladte koder ét sted
+Public Function GetCodes() As Variant
+    ' Tilføj eller fjern koder her hvis koderegisteret ændres.
+    ' Bemærk: 'X' repræsenterer ferie og håndteres særskilt i styling/logik.
+    GetCodes = Array("Q", "H", "k", "s", "f", "a", "j", "u", "X")
+End Function
+
+' --- Hjælpe funktioner ---
+Sub SafeSetValue(ByVal c As Range, ByVal v As Variant)
+    ' Sikker skrivning til en celle uden at trigge Worksheet_Change.
+    ' Brug denne wrapper når koden programmatisk opdaterer celler.
+    On Error GoTo SafeSetErr
+    Application.EnableEvents = False
+    c.Value = v
+SafeSetExit:
+    Application.EnableEvents = True
+    Exit Sub
+SafeSetErr:
+    ' Sørg for at events altid genaktiveres ved fejl.
+    Application.EnableEvents = True
+    Resume SafeSetExit
+End Sub
+
+Function NormalizeCellText(ByVal s As String) As String
+    ' Rens input-streng så kun anerkendte koder og mellemrum bevares.
+    ' - Fjerner tal og specialtegn
+    ' - Bevarer mellemrum/komma (konverterer komma til mellemrum)
+    ' - Returnerer en trimmed streng bestående af koder i samme rækkefølge
+    Dim Codes As Variant
+    Dim i As Long, j As Long
+    Dim ch As String
+    Dim out As String
+    Codes = GetCodes()
+    out = ""
+    For j = 1 To Len(s)
+        ch = Mid$(s, j, 1)
+        If ch Like "[A-Za-z]" Then
+            ' Sammenlign tegnet med alle tilladte koder (case-insensitive)
+            For i = LBound(Codes) To UBound(Codes)
+                If StrComp(ch, Codes(i), vbTextCompare) = 0 Then
+                    out = out & Codes(i)
+                    Exit For
+                End If
+            Next i
+        ElseIf ch = " " Or ch = "," Then
+            out = out & ch
+        End If
+    Next j
+    out = Replace(out, ",", " ")
+    Do While InStr(out, "  ") > 0
+        out = Replace(out, "  ", " ")
+    Loop
+    NormalizeCellText = Trim$(out)
+End Function
+
+Sub ApplyStyleForCodes(ByVal c As Range, ByVal cleaned As String)
+    ' Anvend visuel stil baseret på renset celleværdi.
+    ' - Hvis 'X' findes i værdien: markér som ferie med høj kontrast
+    ' - Hvis teksten ikke er tom: gul baggrund (indsat værdi)
+    ' - Hvis tom: nulstil til standard
+    If InStr(1, cleaned, "X", vbBinaryCompare) > 0 Then
+        ' Ferie: kraftig kontrast (mørk skravering med hvidt mønster)
+        c.Interior.Pattern = xlPatternGray75
+        c.Interior.Color = vbBlack
+        c.Interior.PatternColor = vbWhite
+        c.Font.Bold = True
+        c.Font.Color = vbRed
+    ElseIf cleaned <> "" Then
+        ' Normal indtastning (gul baggrund)
+        c.Interior.Pattern = xlNone
+        c.Interior.Color = ColYellow
+        c.Font.Bold = False
+        c.Font.Color = vbBlack
+    Else
+        ' Tom celle: fjern al intern styling
+        c.Interior.Pattern = xlNone
+        c.Interior.ColorIndex = xlNone
+        c.Font.Bold = False
+        c.Font.Color = vbBlack
+    End If
+End Sub
