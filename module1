@@ -1,123 +1,64 @@
 Option Explicit
+'' =========================================
+'' module1 - Hovedlogik for indtastning, styling og autosluk
+''
+'' Formål og samspil:
+'' - Indeholder event-drevet logik til at håndtere input i området `E12:BD500`.
+'' - Bruger hjælpefunktioner fra `modHelpers` (GetCodes, NormalizeCellText, ApplyStyleForCodes, SafeSetValue).
+'' - Styrer autosluk via Application.OnTime (StartTimer/StopTimer/ResetTimer).
+'' - Key binding: `MarkerSomProvesvar` er bundet til Ctrl+M og giver en stribet blå markering.
+''
+'' Vigtige procedurer:
+'' - BygMitArk: opsætter arket (knapper, headers, formler)
+'' - HåndterIndtastning: validerer og formaterer input (kaldes fra Worksheet_Change)
+'' - HåndterDobbeltklik: toggler udført/ikke-udført ved dobbeltklik (kaldes fra Worksheet_BeforeDoubleClick)
+'' - StartTimer/StopTimer/ResetTimer: styrer autosluk og advarsler
+'' - WarnBeforeClose/StartWarningCountdown/UpdateWarn/CancelWarning: advarselsflow med nedtælling
+'' =========================================
 
 ' --- KONSTANTER TIL FARVER (SÅ DE ER ENS OVERALT) ---
-Public Const ColGreen As Long = 9498256   ' RGB(144, 238, 144) - Udført
-Public Const ColYellow As Long = 14745599 ' RGB(255, 255, 224) - Planlagt
-Public Const ColBlue As Long = 15128749   ' RGB(173, 216, 230) - Prøvesvar
-Public Const ColPurple As Long = 8388736  ' RGB(128, 0, 128)   - Ferie
+Public Const ColGreen As Long = vbGreen   ' Standard Grøn
+Public Const ColYellow As Long = vbYellow ' Standard Gul
+Public Const ColBlue As Long = vbBlue     ' Standard Blå
+Public Const ColPurple As Long = 10498160 ' En lilla farve til Ferie
+
+' Autosluk interval i minutter
+Public Const AutoCloseMinutes As Long = 15
 
 ' Timer variabel
 Public RunTime As Date
+Public WarnTime As Date
+Public WarnRemainingSeconds As Long
+Public WarnUpdateTime As Date
 
 ' ==========================================
 '  DEL 1: LOGIK TIL FARVESKIFT (NY TAKTIK)
 ' ==========================================
 
-' Kaldes når man skriver i en celle
-Sub HåndterIndtastning(Target As Range)
-    Dim Cell As Range
-    Dim Txt As String
-    
-    ' Slå overvågning fra mens vi arbejder
-    Application.EnableEvents = False
-    On Error GoTo ExitHandler
-    
-    For Each Cell In Target
-        If Cell.Value <> "" And Not Cell.HasFormula Then
-            Txt = UCase(Cell.Value)
-            
-            ' 1. Ret til store bogstaver hvis nødvendigt
-            If Cell.Value <> Txt Then Cell.Value = Txt
-            
-            ' 2. Bestem farve
-            If InStr(1, Txt, "X") > 0 Then
-                ' Ferie
-                Cell.Interior.Color = ColPurple
-                Cell.Font.Color = vbWhite
-                Cell.Font.Bold = True
-                Cell.Interior.Pattern = xlNone
-            Else
-                ' Normal - Gør KUN Gul hvis den er "ren" (dvs. ikke allerede Grøn/Blå)
-                ' Dette sikrer at vi ikke overskriver en udført opgave ved en tastefejl
-                Cell.Font.Color = vbBlack
-                Cell.Font.Bold = False
-                
-                If Cell.Interior.Color = ColGreen Then
-                    ' Behold Grøn
-                ElseIf Cell.Interior.Pattern = xlPatternLightUp Then
-                    ' Behold Striber
-                Else
-                    ' Sæt til Standard Gul
-                    Cell.Interior.Color = ColYellow
-                    Cell.Interior.Pattern = xlNone
-                End If
-            End If
-        Else
-            ' Tom celle - Ryd alt
-            If Not Cell.HasFormula Then
-                Cell.Interior.ColorIndex = xlNone
-                Cell.Interior.Pattern = xlNone
-                Cell.Font.Color = vbBlack
-                Cell.Font.Bold = False
-            End If
-        End If
-    Next Cell
-
-ExitHandler:
-    Application.EnableEvents = True
-    ResetTimer
-End Sub
-
-' Kaldes når man Dobbeltklikker
-Sub HåndterDobbeltklik(Target As Range, ByRef Cancel As Boolean)
-    ' Slå events fra
-    Application.EnableEvents = False
-    On Error GoTo ExitHandler
-    
-    Cancel = True ' Stop excel fra at gå ind i cellen
-    
-    ' 1. Tjek om det er Ferie (X)
-    If InStr(1, Target.Value, "X", vbTextCompare) > 0 Then GoTo ExitHandler
-    
-    ' 2. Tjek om det er Prøvesvar (Stribet) - Låst
-    If Target.Interior.Pattern = xlPatternLightUp Then
-        MsgBox "Prøvesvar er registreret." & vbCrLf & "Brug Ctrl+m for at ændre.", vbInformation
-        GoTo ExitHandler
-    End If
-    
-    ' 3. SKIFT MELLEM GRØN OG GUL (Selve logikken du efterspurgte)
-    ' Vi bruger en lille margin i farvesammenligningen for robusthed
-    If Target.Interior.Color = ColGreen Then
-        ' Er den Grøn? -> Gør Gul
-        Target.Interior.Color = ColYellow
-    Else
-        ' Er den Gul (eller hvid/andet)? -> Gør Grøn
-        Target.Interior.Color = ColGreen
-    End If
-    
-    ' Sikr at striber er væk
-    Target.Interior.Pattern = xlNone
-
-ExitHandler:
-    Application.EnableEvents = True
-    ResetTimer
-End Sub
-
 ' Kaldes ved Ctrl+m
+'' MarkerSomProvesvar
+'' ---------------------------------
+'' Hurtigmarkering der sætter en stribet blå baggrund (prøvesvar)
+'' - Bundet til Ctrl+M via `Workbook_Open`
+'' - Virker kun i dataområdet `E12:BD500`
+'' - Rydder betinget formatering først for at undgå konflikter
 Sub MarkerSomProvesvar()
     Dim DataRange As Range
     Set DataRange = ActiveSheet.Range("E12:BD500")
     
     If Not Intersect(ActiveCell, DataRange) Is Nothing Then
+        ' Slet betinget formatering
+        ActiveCell.FormatConditions.Delete
+        
         If ActiveCell.Value <> "" And UCase(ActiveCell.Value) <> "X" Then
             
             ' Tænd/Sluk logik
             If ActiveCell.Interior.Pattern = xlPatternLightUp Then
-                ' Sluk -> Tilbage til Gul
+                ' Er Låst -> Skift tilbage til Grøn (Udført)
                 ActiveCell.Interior.Pattern = xlNone
-                ActiveCell.Interior.Color = ColYellow
+                ActiveCell.Interior.Color = ColGreen
             Else
-                ' Tænd -> Blå med Røde striber
+                ' Er ikke Låst -> Skift til Blå med Røde striber
                 ActiveCell.Interior.Color = ColBlue
                 ActiveCell.Interior.Pattern = xlPatternLightUp
                 ActiveCell.Interior.PatternColor = vbRed
@@ -133,6 +74,11 @@ End Sub
 '  DEL 2: BYG ARKET (DESIGN)
 ' ==========================================
 Sub BygMitArk()
+    ' BygMitArk
+    ' ---------------------------------
+    ' Opretter layoutet for arket, indsætter koder, beskrivelser, og
+    ' formler som tæller forekomster. Denne procedure er et værktøj
+    ' til at (re)initialisere arket og kan køres manuelt.
     Dim ws As Worksheet
     Dim i As Integer
     Dim Codes As Variant
@@ -142,6 +88,8 @@ Sub BygMitArk()
     Dim NumCodes As Integer
     Dim btnCopy As Shape
     Dim btnReset As Shape
+    Dim btnLeftCopy As Double, btnWidthCopy As Double
+    Dim btnLeftReset As Double, btnWidthReset As Double
     
     Application.EnableEvents = True ' SIKKERHEDSNET
     Application.EnableEvents = False
@@ -152,7 +100,7 @@ Sub BygMitArk()
     ws.DrawingObjects.Delete
     ws.Cells.FormatConditions.Delete ' Slet betinget formatering!
     
-    Codes = Array("Q", "H", "k", "s", "f", "a", "j", "u", "X")
+    Codes = GetCodes()
     Descriptions = Array("Vandføringsmåling", "Vandstand", "Kemi", "Salinitet", _
                          "Jern", "Alkalinitet", "Jordvand", "Jordvand udvidet", "FERIE")
     
@@ -198,12 +146,14 @@ Sub BygMitArk()
         End If
     Next i
     
-    ' Knap: Kopier
+    ' Knap: Kopier (lidt mindre end cellebredden, centreret med indre polstring)
+    btnLeftCopy = ws.Cells(10, 2).Left + 4
+    btnWidthCopy = ws.Cells(10, 2).Width - 8
     Set btnCopy = ws.Shapes.AddShape(msoShapeRoundedRectangle, _
-        ws.Cells(10, 2).Left + 2, ws.Cells(10, 2).Top + 2, _
-        ws.Cells(10, 2).Width - 4, ws.Cells(10, 2).Height - 4)
+        btnLeftCopy, ws.Cells(10, 2).Top + 3, _
+        btnWidthCopy, ws.Cells(10, 2).Height - 6)
     With btnCopy
-        .TextFrame.Characters.Text = "KOPIER"
+        .TextFrame.Characters.Text = "Kopier markering"
         .TextFrame.Characters.Font.Size = 8
         .TextFrame.Characters.Font.Bold = True
         .TextFrame.HorizontalAlignment = xlHAlignCenter
@@ -213,11 +163,13 @@ Sub BygMitArk()
         .OnAction = "KopierMarkering"
     End With
     
-    ' Knap: Reset (Nødhjælp)
+    ' Knap: Reset (Nødhjælp) - lidt mindre end cellebredden, centreret
     ws.Range("A10").RowHeight = 25
+    btnLeftReset = ws.Cells(10, 1).Left + 4
+    btnWidthReset = ws.Cells(10, 1).Width - 8
     Set btnReset = ws.Shapes.AddShape(msoShapeRoundedRectangle, _
-        ws.Cells(10, 1).Left + 2, ws.Cells(10, 1).Top + 2, _
-        ws.Cells(10, 1).Width - 4, ws.Cells(10, 1).Height - 4)
+        btnLeftReset, ws.Cells(10, 1).Top + 3, _
+        btnWidthReset, ws.Cells(10, 1).Height - 6)
     With btnReset
         .TextFrame.Characters.Text = "GENSTART"
         .TextFrame.Characters.Font.Size = 8
@@ -324,9 +276,18 @@ End Sub
 ' ==========================================
 
 Sub NodGenstart()
+    ' NodGenstart
+    ' ---------------------------------
+    ' Nødprocedure der rydder betinget formatering i dataområdet.
+    ' Kan bruges når arket opfører sig mærkeligt efter automatiske ændringer.
     Application.EnableEvents = True
-    MsgBox "Systemet er genstartet. Prøv at dobbeltklikke nu.", vbInformation
+    On Error Resume Next
+    ' Sletter betinget formatering som ofte er synderen bag "flimmer"
+    ActiveSheet.Range("E12:BD500").FormatConditions.Delete
+    On Error GoTo 0
+    MsgBox "Systemet er genstartet.", vbInformation
 End Sub
+ ' helpers moved to modHelpers module
 
 Sub KopierMarkering()
     Dim Cell As Range
@@ -357,14 +318,33 @@ Sub KopierMarkering()
 End Sub
 
 Sub StartTimer()
+    ' StartTimer
+    ' ---------------------------------
+    ' Planlæg autosluk: først et advarselskald `WarnBeforeClose` og
+    ' herefter selve `CloseAndSave`. Tidspunkt for luk er `AutoCloseMinutes`
+    ' efter nu. StopTimer kaldes først for at sikre der ikke er gamle planer.
     StopTimer
-    RunTime = Now + TimeValue("00:10:00")
+    RunTime = Now + TimeSerial(0, AutoCloseMinutes, 0)
+    ' Advarsel planlægges 5 minutter før luk
+    WarnTime = RunTime - TimeSerial(0, 5, 0)
+    On Error Resume Next
+    Application.OnTime WarnTime, "WarnBeforeClose"
     Application.OnTime RunTime, "CloseAndSave"
+    On Error GoTo 0
 End Sub
 
 Sub StopTimer()
+    ' StopTimer
+    ' ---------------------------------
+    ' Afbestiller planlagte OnTime-kald (både advarsel og luk) og
+    ' annullerer den per-sekund opdatering af advarsels-nedtællingen.
     On Error Resume Next
     Application.OnTime RunTime, "CloseAndSave", , False
+    Application.OnTime WarnTime, "WarnBeforeClose", , False
+    ' Annuller eventuel per-second UpdateWarn
+    On Error Resume Next
+    Application.OnTime WarnUpdateTime, "UpdateWarn", , False
+    On Error GoTo 0
     On Error GoTo 0
 End Sub
 
@@ -374,7 +354,160 @@ Sub ResetTimer()
 End Sub
 
 Sub CloseAndSave()
+    ' Luk uden prompt (advarsel sendes tidligere). Dette kald kan være
+    ' planlagt af OnTime — luk og gem automatisk.
+    On Error Resume Next
     Application.DisplayAlerts = False
     If Not ThisWorkbook.ReadOnly Then ThisWorkbook.Save
     ThisWorkbook.Close
+End Sub
+
+Sub StartWarningCountdown(ByVal seconds As Long)
+    ' Start per-second nedtælling, som opdaterer statuslinjen.
+    ' Dokumentation:
+    ' - Bruges af `WarnBeforeClose` til at vise en live nedtælling i statuslinjen
+    ' - Gemmer tidspunktet i `WarnUpdateTime` så den kan annulleres via OnTime
+    WarnRemainingSeconds = seconds
+    ' Sæt første update til nu + 1 sek
+    WarnUpdateTime = Now + TimeSerial(0, 0, 1)
+    Application.OnTime WarnUpdateTime, "UpdateWarn"
+End Sub
+
+Sub UpdateWarn()
+    ' UpdateWarn
+    ' ---------------------------------
+    ' Opdaterer `Application.StatusBar` hvert sekund med resterende tid.
+    ' Hvis nedtællingen når 0, udløses `CloseAndSave`.
+    On Error Resume Next
+    ' Hvis timer er afbrudt, ryd status og stop
+    If WarnRemainingSeconds <= 0 Then
+        Application.StatusBar = False
+        Exit Sub
+    End If
+
+    Dim mins As Long, secs As Long
+    mins = WarnRemainingSeconds \ 60
+    secs = WarnRemainingSeconds Mod 60
+    Application.StatusBar = "Autosluk om " & Format$(mins, "00") & ":" & Format$(secs, "00") & " (tryk Esc eller Annuller i advarselsdialog for at beholde arket)"
+
+    WarnRemainingSeconds = WarnRemainingSeconds - 1
+    If WarnRemainingSeconds <= 0 Then
+        Application.StatusBar = False
+        ' Kør luk
+        CloseAndSave
+    Else
+        ' Planlæg næste update
+        WarnUpdateTime = Now + TimeSerial(0, 0, 1)
+        Application.OnTime WarnUpdateTime, "UpdateWarn"
+    End If
+End Sub
+
+Sub CancelWarning()
+    ' Stop per-second advarsel og ryd statusbar
+    ' - Anvendes hvis brugeren vælger at annullere advarslen eller når timer
+    '   genstartes/annulleres af anden årsag.
+    On Error Resume Next
+    Application.OnTime WarnUpdateTime, "UpdateWarn", , False
+    WarnRemainingSeconds = 0
+    Application.StatusBar = False
+    On Error GoTo 0
+End Sub
+
+' ==========================================
+'  DEL 4: HÅNDTERING AF INDTASTNING & DOBBELTKLIK
+' ==========================================
+
+Sub HåndterIndtastning(TargetRange As Range)
+    ' HåndterIndtastning
+    ' ---------------------------------
+    ' Validerer og normaliserer indtastninger i dataområdet.
+    ' Flow for hver celle i TargetRange:
+    ' 1) Rens tekst via `NormalizeCellText` (fjern ugyldige tegn og normaliser case)
+    ' 2) Skriv evt. den rensede værdi tilbage via `SafeSetValue` (undgå events)
+    ' 3) Anvend visuel styling via `ApplyStyleForCodes`
+    ' Bemærk: tomme celler får styling fjernet.
+    Dim Cell As Range
+    Dim Codes As Variant
+    Dim i As Long
+    Dim s As String
+    Dim cleaned As String
+    Dim ch As String
+    Dim j As Long
+
+    Codes = GetCodes()
+
+    For Each Cell In TargetRange
+        If Trim(CStr(Cell.Value)) <> "" Then
+                s = CStr(Cell.Value) ' No-op change
+            cleaned = NormalizeCellText(s)
+
+            If cleaned <> CStr(Cell.Value) Then
+                SafeSetValue Cell, cleaned
+            End If
+
+            ' Anvend styling afhængigt af renset værdi
+            ApplyStyleForCodes Cell, cleaned
+        Else
+            ' Hvis cellen er tom (fx slettet), fjern baggrund og styling
+            ApplyStyleForCodes Cell, vbNullString
+        End If
+    Next Cell
+    ResetTimer
+End Sub
+
+Sub HåndterDobbeltklik(Target As Range, Cancel As Boolean)
+    ' HåndterDobbeltklik
+    ' ---------------------------------
+    ' Dobbeltklik toggler en cellens status mellem "Udført" (grøn) og
+    ' "Indtastet" (gul). Særlige regler:
+    ' - Hvis cellen er markeret som FERIE (X) ignoreres dobbeltklik.
+    ' - Forhindrer redigering efter dobbeltklik ved at sætte Cancel = True.
+    ' - Når cellen er tom, fjernes baggrunden (det sker i HåndterIndtastning ved slet).
+    If Target.Value <> "" Then
+        On Error Resume Next
+        ' Ignorer dobbeltklik for X-celler
+        If Target.Interior.Color = ColPurple Then
+            Cancel = True
+            On Error GoTo 0
+            Exit Sub
+        End If
+
+        Dim curColor As Long
+        curColor = Target.Interior.Color
+
+        If curColor = ColGreen Then
+            ' Grøn -> skift til gul
+            Target.Interior.Pattern = xlNone
+            Target.Interior.Color = ColYellow
+        Else
+            ' Gul eller andet -> skift til grøn
+            Target.Interior.Pattern = xlNone
+            Target.Interior.Color = ColGreen
+        End If
+
+        On Error GoTo 0
+        Cancel = True  ' Forhindrer redigering efter dobbeltklik
+    End If
+    ResetTimer
+End Sub
+
+Sub WarnBeforeClose()
+    ' Vis advarsel 5 minutter før planlagt luk. Hvis bruger vælger Nej -> annuller/regenstart timer.
+    Dim ans As VbMsgBoxResult
+    ' Start per-second nedtælling (5 minutter = 300 sek)
+    StartWarningCountdown 300
+
+    ans = MsgBox("Advarsel: Denne projektmappe vil blive gemt og lukket om 5 minutter." & vbCrLf & _
+                 "Klik 'Ja' for at lukke nu, eller 'Nej' for at annullere autosluk og fortsætte arbejdet.", _
+                 vbYesNo + vbExclamation, "Autosluk - advarsel")
+
+    If ans = vbYes Then
+        ' Brugeren valgte at lukke nu: stop countdown og luk
+        CancelWarning
+        CloseAndSave
+    Else
+        ' Brugeren valgte Nej -> stop countdown og genstart timer fra nu
+        CancelWarning
+        ResetTimer
+    End If
 End Sub
