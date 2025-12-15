@@ -1,25 +1,24 @@
 Option Explicit
 
 '' =========================================
-'' Ark1 (Worksheet) - Event hooks for user interaction
-''
-'' Formål:
-'' - Fange brugers aktiviteter i arket (ændringer, dobbeltklik, selection)
-'' - Give hurtig respons: farvning af kolonne A, videresende data-events
-''
-'' Integration:
-'' - Sender datacalls for området `E12:BD500` til `HåndterIndtastning` og `HåndterDobbeltklik`
-'' - Kalder `ResetTimer` ved brugeraktivitet for at holde autosluk i sync
+'' Ark1 (Worksheet) - Event hooks
 '' =========================================
 
 Private Sub Worksheet_Change(ByVal Target As Range)
-    ' 1) Nulstil autosluk timer ved enhver brugeraktivitet
-    '    (forlænger autosluk så længe brugeren arbejder)
+    ' 1) Manuel lukketid i B1
+    If Not Intersect(Target, Me.Range("B1")) Is Nothing Then
+        On Error Resume Next
+        Call ApplyManualCloseTime(Intersect(Target, Me.Range("B1")))
+        On Error GoTo 0
+        Exit Sub
+    End If
+
+    ' Nulstil autosluk
     ResetTimer
     
-    ' 2. Togt Farver (Kolonne A) - Den beholder vi lokalt da den er simpel
+    ' 2. Togt Farver (Kolonne A) - RETTET til A14
     Dim TogtRange As Range
-    Set TogtRange = Me.Range("A12:A500")
+    Set TogtRange = Me.Range("A14:A500")
     
     If Not Intersect(Target, TogtRange) Is Nothing Then
         Dim Cell As Range
@@ -44,30 +43,27 @@ Private Sub Worksheet_Change(ByVal Target As Range)
                     Case Else: Cell.Interior.Color = xlNone
                 End Select
             Else
-                Cell.Interior.ColorIndex = xlNone
+                 Cell.Interior.ColorIndex = xlNone
             End If
         Next Cell
     End If
     
-    ' 3. Data Indtastning (E12:BD500) -> Send til Module1
+    ' 3. Data Indtastning (E14:BD500) - RETTET til række 14
     Dim DataRange As Range
-    Set DataRange = Me.Range("E12:BD500")
+    Set DataRange = Me.Range("E14:BD500")
     
     If Not Intersect(Target, DataRange) Is Nothing Then
-        ' 3) Hvis der skrives i data-området, videresend de berørte celler
-        '    til `HåndterIndtastning` i `module1` som står for validering
-        '    og styling. Intersect sikrer at vi kun sender relevante celler.
         Call HåndterIndtastning(Intersect(Target, DataRange))
     End If
 End Sub
 
 Private Sub Worksheet_BeforeDoubleClick(ByVal Target As Range, Cancel As Boolean)
+    ' RETTET til række 14
     Dim DataRange As Range
-    Set DataRange = Me.Range("E12:BD500")
+    Set DataRange = Me.Range("E14:BD500")
     
     If Not Intersect(Target, DataRange) Is Nothing Then
         If Target.Value <> "" Then
-            ' Videresend dobbeltklik til module1 som håndterer toggle-logik
             Call HåndterDobbeltklik(Target, Cancel)
         End If
     End If
